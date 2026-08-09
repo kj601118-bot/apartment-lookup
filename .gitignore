@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+transactions.csv
+data/transactions.csv
+data/transactions_user_pivot_backup.csv
+data/complex_summary.csv
+data/weekly_new_*.csv
+*.html
