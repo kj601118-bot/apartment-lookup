@@ -7,4 +7,5 @@ data/transactions.csv
 data/transactions_user_pivot_backup.csv
 data/complex_summary.csv
 data/weekly_new_*.csv
+data/kaptlist_cache.csv
 *.html

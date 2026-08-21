@@ -33,6 +33,19 @@ def load_geo():
         return pd.DataFrame(columns=["지역", "umdNm", "aptNm", "lat", "lon", "addr_display"])
 
 
+@st.cache_data
+def load_aptinfo():
+    # matchType이 exact/contains(비모호)인 경우만 신뢰 — ambiguous/no_match는 세대수 미표기
+    try:
+        info = pd.read_csv("data/aptinfo_cache.csv", encoding="utf-8-sig")
+    except FileNotFoundError:
+        return pd.DataFrame(columns=["지역", "umdNm", "aptNm", "세대수"])
+    info = info[info["matchType"].isin(["exact", "contains"])]
+    info = info[info["세대수"].notna()]
+    info["세대수"] = info["세대수"].astype(float).astype(int)
+    return info[["지역", "umdNm", "aptNm", "세대수"]]
+
+
 def ym_add(ym, delta):
     y, m = divmod(ym, 100)
     m += delta
@@ -47,6 +60,7 @@ def ym_add(ym, delta):
 
 df = load_transactions()
 geo = load_geo()
+aptinfo = load_aptinfo()
 
 max_ym = int(df["ym"].max())
 recent_window = {ym_add(max_ym, -2), ym_add(max_ym, -1), max_ym}
@@ -98,7 +112,18 @@ for key, g in filtered.groupby(["지역", "umdNm", "aptNm", "buildYear"]):
         "전체거래건수": len(g),
         "최근거래일": f"{int(last_row.dealYear)}-{int(last_row.dealMonth):02d}-{int(last_row.dealDay):02d}",
     })
-summary = pd.DataFrame(rows).sort_values("최근3개월평균(억)", ascending=False, na_position="last").reset_index(drop=True)
+summary = pd.DataFrame(rows)
+if len(summary):
+    summary = summary.merge(
+        aptinfo.rename(columns={"umdNm": "동", "aptNm": "아파트명"}),
+        on=["지역", "동", "아파트명"], how="left",
+    )
+else:
+    summary["세대수"] = pd.Series(dtype="Int64")
+summary = summary.sort_values("최근3개월평균(억)", ascending=False, na_position="last").reset_index(drop=True)
+COLUMN_ORDER = ["선택", "지역", "동", "아파트명", "준공년도", "세대수", "전용면적(㎡)",
+                "최근3개월평균(억)", "최근3개월건수", "전체거래건수", "최근거래일"]
+summary = summary[COLUMN_ORDER]
 
 m1, m2, m3 = st.columns(3)
 m1.metric("매칭 단지 수", f"{len(summary):,}개")
@@ -132,6 +157,7 @@ edited = st.data_editor(
     height=420,
     column_config={
         "선택": st.column_config.CheckboxColumn(required=True, width="small"),
+        "세대수": st.column_config.NumberColumn(format="%d세대"),
         "전용면적(㎡)": st.column_config.NumberColumn(format="%.2f㎡"),
         "최근3개월평균(억)": st.column_config.NumberColumn(format="%.2f억"),
         "준공년도": st.column_config.NumberColumn(format="%d"),
@@ -221,6 +247,6 @@ else:
 
 st.divider()
 st.caption(
-    "데이터: 국토교통부 실거래가공개시스템 API (data.go.kr) · 정적 스냅샷이며 주기적으로 수동 갱신됩니다. "
-    "세대수·학군·치안 등 정성 정보는 이 앱에 포함되어 있지 않습니다."
+    "데이터: 국토교통부 실거래가공개시스템 API + 공동주택 단지/기본정보 API (data.go.kr) · 정적 스냅샷이며 주기적으로 수동 갱신됩니다. "
+    "세대수는 단지명 자동 매칭으로 확보한 값으로 일부 단지는 비어 있을 수 있습니다. 학군·치안 등 정성 정보는 포함되어 있지 않습니다."
 )
