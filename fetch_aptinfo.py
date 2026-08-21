@@ -18,9 +18,35 @@ ENDPOINT = ENV["APT_BASIS_ENDPOINT"] + "/getAphusBassInfoV4"
 SERVICE_KEY = ENV["APT_BASIS_SERVICE_KEY"]
 
 
+SUFFIXES = ("아파트", "apt", "APT")
+
+
 def normalize(name):
     name = re.sub(r"[\s()·,\-]", "", str(name))
+    for suf in SUFFIXES:
+        if name.endswith(suf):
+            name = name[: -len(suf)]
+            break
     return name.lower()
+
+
+def dong_prefixes(dong):
+    """'자양동' -> ['자양동', '자양'] 처럼 동명 접두어 후보를 만든다 (K-apt가 동명을 단지명 앞에 붙이는 경우 대응)"""
+    core = re.sub(r"\d*(동|가|리)$", "", str(dong))
+    prefixes = []
+    if dong:
+        prefixes.append(str(dong))
+    if core and core != dong:
+        prefixes.append(core)
+    return prefixes
+
+
+def strip_dong_prefix(name, dong):
+    for p in dong_prefixes(dong):
+        p_norm = normalize(p)
+        if p_norm and name.startswith(p_norm) and len(name) > len(p_norm):
+            return name[len(p_norm):]
+    return name
 
 
 def load_kapt_list():
@@ -32,21 +58,38 @@ def load_kapt_list():
     return buckets
 
 
-def match_kapt_code(apt_name, candidates):
+def match_kapt_code(apt_name, dong, candidates):
     norm_target = normalize(apt_name)
     if not norm_target:
         return None, "no_name"
+
     exact = [c for c in candidates if normalize(c[0]) == norm_target]
     if len(exact) == 1:
         return exact[0][1], "exact"
     if len(exact) > 1:
         return exact[0][1], "exact_ambiguous"
+
     contains = [c for c in candidates if norm_target in normalize(c[0]) or normalize(c[0]) in norm_target]
     if len(contains) == 1:
         return contains[0][1], "contains"
     if len(contains) > 1:
         contains.sort(key=lambda c: abs(len(normalize(c[0])) - len(norm_target)))
         return contains[0][1], "contains_ambiguous"
+
+    # K-apt가 단지명 앞에 동명을 붙이는 흔한 패턴 대응 (예: RTMS "자양삼성" vs K-apt "자양동삼성아파트")
+    target_dedong = strip_dong_prefix(norm_target, dong)
+    dedong = [
+        c for c in candidates
+        if strip_dong_prefix(normalize(c[0]), dong) == target_dedong
+        or target_dedong in strip_dong_prefix(normalize(c[0]), dong)
+        or strip_dong_prefix(normalize(c[0]), dong) in target_dedong
+    ]
+    if len(dedong) == 1:
+        return dedong[0][1], "dedong"
+    if len(dedong) > 1:
+        dedong.sort(key=lambda c: abs(len(strip_dong_prefix(normalize(c[0]), dong)) - len(target_dedong)))
+        return dedong[0][1], "dedong_ambiguous"
+
     return None, "no_match"
 
 
@@ -80,7 +123,7 @@ def main():
     for i, r in complexes.iterrows():
         region, dong, name = r["지역"], r["umdNm"], r["aptNm"]
         candidates = buckets.get((region, dong), [])
-        kapt_code, match_type = match_kapt_code(name, candidates)
+        kapt_code, match_type = match_kapt_code(name, dong, candidates)
         match_stats[match_type] = match_stats.get(match_type, 0) + 1
 
         households = None

@@ -11,7 +11,7 @@ households = {}
 try:
     with open("data/aptinfo_cache.csv", encoding="utf-8-sig") as f:
         for r in csv.DictReader(f):
-            if r["matchType"] in ("exact", "contains") and r["세대수"]:
+            if r["matchType"] in ("exact", "contains", "dedong") and r["세대수"]:
                 households[(r["지역"], r["umdNm"], r["aptNm"])] = int(float(r["세대수"]))
 except FileNotFoundError:
     pass

@@ -40,7 +40,7 @@ def load_aptinfo():
         info = pd.read_csv("data/aptinfo_cache.csv", encoding="utf-8-sig")
     except FileNotFoundError:
         return pd.DataFrame(columns=["지역", "umdNm", "aptNm", "세대수"])
-    info = info[info["matchType"].isin(["exact", "contains"])]
+    info = info[info["matchType"].isin(["exact", "contains", "dedong"])]
     info = info[info["세대수"].notna()]
     info["세대수"] = info["세대수"].astype(float).astype(int)
     return info[["지역", "umdNm", "aptNm", "세대수"]]
