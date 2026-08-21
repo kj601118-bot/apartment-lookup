@@ -9,7 +9,7 @@ SERIES_COLORS = [
     "#2a78d6", "#eb6834", "#1baf7a", "#eda100",
     "#e87ba4", "#008300", "#4a3aa7", "#e34948",
 ]
-MAX_SELECT = len(SERIES_COLORS)
+PALETTE_SIZE = len(SERIES_COLORS)  # 색상은 이 개수만큼 순환 사용 (선택 개수 제한 없음)
 
 st.set_page_config(page_title="서울·경기 아파트 실거래가 조회", page_icon="🏢", layout="wide")
 
@@ -99,7 +99,7 @@ m2.metric("매칭 거래 건수", f"{len(filtered):,}건")
 m3.metric("전체 데이터 규모", f"{df['aptNm'].nunique():,}개 단지 · {len(df):,}건")
 
 head_l, head_r = st.columns([3, 1])
-head_l.markdown(f"##### 단지 목록 — 왼쪽 체크박스로 최대 {MAX_SELECT}개까지 비교 선택")
+head_l.markdown("##### 단지 목록 — 왼쪽 체크박스로 비교할 단지를 선택 (전체 선택 가능)")
 btn_a, btn_b = head_r.columns(2)
 select_all_clicked = btn_a.button("전체 선택", use_container_width=True)
 deselect_all_clicked = btn_b.button("전체 해제", use_container_width=True)
@@ -110,10 +110,7 @@ if select_all_clicked or deselect_all_clicked:
     st.session_state.select_all_epoch += 1
 
 if select_all_clicked:
-    summary["선택"] = False
-    summary.loc[summary.index[:MAX_SELECT], "선택"] = True
-    if len(summary) > MAX_SELECT:
-        st.warning(f"표시된 {len(summary)}개 단지 중 상위 {MAX_SELECT}개만 선택했어요 (최대 {MAX_SELECT}개까지 비교 가능).")
+    summary["선택"] = True
 elif deselect_all_clicked:
     summary["선택"] = False
 
@@ -135,9 +132,6 @@ edited = st.data_editor(
 )
 
 selected = edited[edited["선택"]]
-if len(selected) > MAX_SELECT:
-    st.warning(f"최대 {MAX_SELECT}개까지 비교할 수 있어요. 상위 {MAX_SELECT}개만 차트/지도에 반영합니다.")
-    selected = selected.head(MAX_SELECT)
 sel_keys = list(zip(selected["지역"], selected["동"], selected["아파트명"]))
 
 # ---------------- Trend chart ----------------
@@ -164,6 +158,28 @@ if sel_keys:
     st.plotly_chart(fig, use_container_width=True)
 else:
     st.info("위 표에서 단지를 체크하면 여기에 시계열 실거래가 추이가 표시됩니다.")
+
+# ---------------- Volume (overlaid bar chart) ----------------
+st.markdown("##### 거래량 추이 (월별 거래건수 · 겹쳐보기)")
+if sel_keys:
+    vol_tx = filtered[filtered.set_index(["지역", "umdNm", "aptNm"]).index.isin(sel_keys)].copy()
+    vol_tx["연월"] = vol_tx["dealYear"].astype(str) + "-" + vol_tx["dealMonth"].astype(str).str.zfill(2)
+    vol_tx["단지"] = vol_tx["umdNm"] + " " + vol_tx["aptNm"]
+    volume = vol_tx.groupby(["단지", "연월"], as_index=False).size().rename(columns={"size": "거래건수"})
+    fig_vol = px.bar(
+        volume.sort_values("연월"), x="연월", y="거래건수", color="단지",
+        color_discrete_sequence=SERIES_COLORS, barmode="overlay",
+        labels={"거래건수": "거래건수", "연월": "계약년월"},
+    )
+    fig_vol.update_traces(opacity=0.55, marker_line_width=0)
+    fig_vol.update_layout(
+        height=260, margin=dict(l=10, r=10, t=10, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        plot_bgcolor="rgba(0,0,0,0)", bargap=0.15,
+    )
+    st.plotly_chart(fig_vol, use_container_width=True)
+else:
+    st.info("위 표에서 단지를 체크하면 여기에 월별 거래량이 막대그래프로 표시됩니다.")
 
 # ---------------- Map ----------------
 st.markdown("##### 선택 단지 위치")
