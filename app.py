@@ -79,13 +79,18 @@ if sel_apts:
     filtered = filtered[filtered["aptNm"].isin(sel_apts)]
 
 # ---------------- Complex-level summary ----------------
+# 최근 3개월간 실거래가 0건인 단지는 목록에서 제외한다
 rows = []
 for key, g in filtered.groupby(["지역", "umdNm", "aptNm", "buildYear"]):
     recent = g[g["ym"].isin(recent_window)]
+    if len(recent) == 0:
+        continue
     last_row = g.sort_values(["dealYear", "dealMonth", "dealDay"]).iloc[-1]
+    area_mode = g["excluUseAr"].round(2).mode()
     rows.append({
         "선택": False,
         "지역": key[0], "동": key[1], "아파트명": key[2], "준공년도": int(key[3]),
+        "전용면적(㎡)": float(area_mode.iloc[0]) if len(area_mode) else None,
         "최근3개월평균(억)": round(recent["억"].mean(), 2) if len(recent) else None,
         "최근3개월건수": len(recent),
         "전체거래건수": len(g),
@@ -125,6 +130,7 @@ edited = st.data_editor(
     height=420,
     column_config={
         "선택": st.column_config.CheckboxColumn(required=True, width="small"),
+        "전용면적(㎡)": st.column_config.NumberColumn(format="%.2f㎡"),
         "최근3개월평균(억)": st.column_config.NumberColumn(format="%.2f억"),
         "준공년도": st.column_config.NumberColumn(format="%d"),
     },
