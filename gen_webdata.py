@@ -13,7 +13,7 @@ transactions = []   # [complexId, year, month, day, amount(만원), floor, area]
 for r in rows:
     key = (r["지역"], r["umdNm"], r["aptNm"])
     if key not in complex_index:
-        addr = r["roadNm"].strip() or r["jibun"].strip()
+        addr = r["addr"].strip()
         complex_index[key] = len(complexes)
         complexes.append([r["지역"], r["umdNm"], r["aptNm"], r["buildYear"], addr])
     cid = complex_index[key]
