@@ -80,11 +80,12 @@ if sel_apts:
     filtered = filtered[filtered["aptNm"].isin(sel_apts)]
 
 # ---------------- Complex-level summary ----------------
-# 최근 3개월간 실거래가 0건인 단지는 목록에서 제외한다
+# 최근 3개월간 실거래가 3건 미만인 단지는 목록에서 제외한다
+MIN_RECENT_COUNT = 3
 rows = []
 for key, g in filtered.groupby(["지역", "umdNm", "aptNm", "buildYear"]):
     recent = g[g["ym"].isin(recent_window)]
-    if len(recent) == 0:
+    if len(recent) < MIN_RECENT_COUNT:
         continue
     last_row = g.sort_values(["dealYear", "dealMonth", "dealDay"]).iloc[-1]
     area_mode = g["excluUseAr"].round(2).mode()
