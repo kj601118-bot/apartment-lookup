@@ -9,6 +9,7 @@ SERIES_COLORS = [
     "#2a78d6", "#eb6834", "#1baf7a", "#eda100",
     "#e87ba4", "#008300", "#4a3aa7", "#e34948",
 ]
+MAX_SELECT = len(SERIES_COLORS)
 
 st.set_page_config(page_title="서울·경기 아파트 실거래가 조회", page_icon="🏢", layout="wide")
 
@@ -97,10 +98,27 @@ m1.metric("매칭 단지 수", f"{len(summary):,}개")
 m2.metric("매칭 거래 건수", f"{len(filtered):,}건")
 m3.metric("전체 데이터 규모", f"{df['aptNm'].nunique():,}개 단지 · {len(df):,}건")
 
-st.markdown("##### 단지 목록 — 왼쪽 체크박스로 최대 8개까지 비교 선택")
+head_l, head_r = st.columns([3, 1])
+head_l.markdown(f"##### 단지 목록 — 왼쪽 체크박스로 최대 {MAX_SELECT}개까지 비교 선택")
+btn_a, btn_b = head_r.columns(2)
+select_all_clicked = btn_a.button("전체 선택", use_container_width=True)
+deselect_all_clicked = btn_b.button("전체 해제", use_container_width=True)
+
+if "select_all_epoch" not in st.session_state:
+    st.session_state.select_all_epoch = 0
+if select_all_clicked or deselect_all_clicked:
+    st.session_state.select_all_epoch += 1
+
+if select_all_clicked:
+    summary["선택"] = False
+    summary.loc[summary.index[:MAX_SELECT], "선택"] = True
+    if len(summary) > MAX_SELECT:
+        st.warning(f"표시된 {len(summary)}개 단지 중 상위 {MAX_SELECT}개만 선택했어요 (최대 {MAX_SELECT}개까지 비교 가능).")
+elif deselect_all_clicked:
+    summary["선택"] = False
 
 filter_sig = f"{tuple(sorted(sel_regions))}|{tuple(sorted(sel_dongs))}|{tuple(sorted(sel_apts))}"
-editor_key = f"editor_{abs(hash(filter_sig))}"
+editor_key = f"editor_{abs(hash(filter_sig))}_{st.session_state.select_all_epoch}"
 
 edited = st.data_editor(
     summary,
@@ -117,9 +135,9 @@ edited = st.data_editor(
 )
 
 selected = edited[edited["선택"]]
-if len(selected) > 8:
-    st.warning("최대 8개까지 비교할 수 있어요. 상위 8개만 차트/지도에 반영합니다.")
-    selected = selected.head(8)
+if len(selected) > MAX_SELECT:
+    st.warning(f"최대 {MAX_SELECT}개까지 비교할 수 있어요. 상위 {MAX_SELECT}개만 차트/지도에 반영합니다.")
+    selected = selected.head(MAX_SELECT)
 sel_keys = list(zip(selected["지역"], selected["동"], selected["아파트명"]))
 
 # ---------------- Trend chart ----------------
