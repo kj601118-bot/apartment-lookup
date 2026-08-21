@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """서울·경기 아파트 실거래가 조회 — Streamlit 공개 웹앱"""
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 import pydeck as pdk
 import streamlit as st
+from plotly.subplots import make_subplots
 
 SERIES_COLORS = [
     "#2a78d6", "#eb6834", "#1baf7a", "#eda100",
@@ -140,52 +141,46 @@ edited = st.data_editor(
 selected = edited[edited["선택"]]
 sel_keys = list(zip(selected["지역"], selected["동"], selected["아파트명"]))
 
-# ---------------- Trend chart ----------------
-st.markdown("##### 실거래가 추이")
+# ---------------- Trend + volume (combined, overlaid) ----------------
+st.markdown("##### 실거래가 · 거래량 추이 — 좌축 억원(선) · 우축 거래건수(막대, 겹쳐보기)")
 if sel_keys:
     tx = filtered[filtered.set_index(["지역", "umdNm", "aptNm"]).index.isin(sel_keys)].copy()
     tx["연월"] = tx["dealYear"].astype(str) + "-" + tx["dealMonth"].astype(str).str.zfill(2)
-    tx["단지"] = tx["동"] if False else tx["umdNm"] + " " + tx["aptNm"]
+    tx["단지"] = tx["umdNm"] + " " + tx["aptNm"]
     monthly = (
-        tx.groupby(["단지", "연월"], as_index=False)["억"].mean()
+        tx.groupby(["단지", "연월"], as_index=False)
+        .agg(억=("억", "mean"), 거래건수=("억", "size"))
         .sort_values("연월")
     )
-    fig = px.line(
-        monthly, x="연월", y="억", color="단지", markers=True,
-        color_discrete_sequence=SERIES_COLORS,
-        labels={"억": "실거래가(억원)", "연월": "계약년월"},
-    )
-    fig.update_traces(line=dict(width=2), marker=dict(size=7))
+    # 거래량 막대는 우측 보조축의 하단 32%에만 그려, 가격 선과 겹쳐도 서로 가리지 않게 한다
+    max_count = max(monthly["거래건수"].max(), 1)
+    vol_axis_max = max_count / 0.32
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    for i, name in enumerate(monthly["단지"].unique()):
+        color = SERIES_COLORS[i % PALETTE_SIZE]
+        d = monthly[monthly["단지"] == name]
+        fig.add_trace(go.Bar(
+            x=d["연월"], y=d["거래건수"], name=name, marker_color=color, opacity=0.32,
+            marker_line_width=0, showlegend=False,
+            hovertemplate=f"{name} 거래량<br>%{{x}}<br>%{{y}}건<extra></extra>",
+        ), secondary_y=True)
+        fig.add_trace(go.Scatter(
+            x=d["연월"], y=d["억"], name=name, mode="lines+markers",
+            line=dict(color=color, width=2), marker=dict(color=color, size=7),
+            hovertemplate=f"{name}<br>%{{x}}<br>%{{y:.2f}}억<extra></extra>",
+        ), secondary_y=False)
+
+    fig.update_yaxes(title_text="실거래가(억원)", secondary_y=False)
+    fig.update_yaxes(title_text="거래건수", secondary_y=True, range=[0, vol_axis_max], showgrid=False)
     fig.update_layout(
-        height=380, margin=dict(l=10, r=10, t=10, b=10),
+        height=440, margin=dict(l=10, r=10, t=10, b=10), barmode="overlay",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         plot_bgcolor="rgba(0,0,0,0)",
     )
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("위 표에서 단지를 체크하면 여기에 시계열 실거래가 추이가 표시됩니다.")
-
-# ---------------- Volume (overlaid bar chart) ----------------
-st.markdown("##### 거래량 추이 (월별 거래건수 · 겹쳐보기)")
-if sel_keys:
-    vol_tx = filtered[filtered.set_index(["지역", "umdNm", "aptNm"]).index.isin(sel_keys)].copy()
-    vol_tx["연월"] = vol_tx["dealYear"].astype(str) + "-" + vol_tx["dealMonth"].astype(str).str.zfill(2)
-    vol_tx["단지"] = vol_tx["umdNm"] + " " + vol_tx["aptNm"]
-    volume = vol_tx.groupby(["단지", "연월"], as_index=False).size().rename(columns={"size": "거래건수"})
-    fig_vol = px.bar(
-        volume.sort_values("연월"), x="연월", y="거래건수", color="단지",
-        color_discrete_sequence=SERIES_COLORS, barmode="overlay",
-        labels={"거래건수": "거래건수", "연월": "계약년월"},
-    )
-    fig_vol.update_traces(opacity=0.55, marker_line_width=0)
-    fig_vol.update_layout(
-        height=260, margin=dict(l=10, r=10, t=10, b=10),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        plot_bgcolor="rgba(0,0,0,0)", bargap=0.15,
-    )
-    st.plotly_chart(fig_vol, use_container_width=True)
-else:
-    st.info("위 표에서 단지를 체크하면 여기에 월별 거래량이 막대그래프로 표시됩니다.")
+    st.info("위 표에서 단지를 체크하면 여기에 실거래가·거래량 추이가 함께 표시됩니다.")
 
 # ---------------- Map ----------------
 st.markdown("##### 선택 단지 위치")
