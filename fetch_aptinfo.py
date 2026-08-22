@@ -30,19 +30,29 @@ def normalize(name):
     return name.lower()
 
 
-def dong_prefixes(dong):
-    """'자양동' -> ['자양동', '자양'] 처럼 동명 접두어 후보를 만든다 (K-apt가 동명을 단지명 앞에 붙이는 경우 대응)"""
+def gu_core(region):
+    """'서울 관악구' -> '관악', '경기 성남시 분당구' -> '분당', '경기 하남시' -> '하남'"""
+    last = str(region).split()[-1]
+    return re.sub(r"(시|군|구)$", "", last)
+
+
+def local_prefixes(region, dong):
+    """'자양동' -> ['자양동', '자양', '광진'(구명)] 처럼 K-apt가 단지명 앞에 붙이는
+    동명/구명 접두어 후보를 만든다 (예: '자양동삼성아파트', '관악벽산블루밍')"""
     core = re.sub(r"\d*(동|가|리)$", "", str(dong))
     prefixes = []
     if dong:
         prefixes.append(str(dong))
     if core and core != dong:
         prefixes.append(core)
+    gu = gu_core(region)
+    if gu and gu not in prefixes:
+        prefixes.append(gu)
     return prefixes
 
 
-def strip_dong_prefix(name, dong):
-    for p in dong_prefixes(dong):
+def strip_local_prefix(name, region, dong):
+    for p in local_prefixes(region, dong):
         p_norm = normalize(p)
         if p_norm and name.startswith(p_norm) and len(name) > len(p_norm):
             return name[len(p_norm):]
@@ -58,7 +68,7 @@ def load_kapt_list():
     return buckets
 
 
-def match_kapt_code(apt_name, dong, candidates):
+def match_kapt_code(apt_name, region, dong, candidates):
     norm_target = normalize(apt_name)
     if not norm_target:
         return None, "no_name"
@@ -69,6 +79,16 @@ def match_kapt_code(apt_name, dong, candidates):
     if len(exact) > 1:
         return exact[0][1], "exact_ambiguous"
 
+    # K-apt가 단지명 앞에 동명/구명을 붙이는 흔한 패턴 대응
+    # (예: RTMS "자양삼성" vs K-apt "자양동삼성아파트", RTMS "벽산블루밍" vs K-apt "관악벽산블루밍")
+    # 접두어 제거 후 "정확히" 일치하는 경우를 먼저 확인 — 아래 containment보다 신뢰도가 높아 우선 적용해
+    # "벽산블루밍" vs "봉천벽산블루밍3차"류의 오탐(둘 다 containment는 걸림) 모호성을 줄인다.
+    prefix_exact = [c for c in candidates if strip_local_prefix(normalize(c[0]), region, dong) == norm_target]
+    if len(prefix_exact) == 1:
+        return prefix_exact[0][1], "dedong"
+    if len(prefix_exact) > 1:
+        return prefix_exact[0][1], "dedong_ambiguous"
+
     contains = [c for c in candidates if norm_target in normalize(c[0]) or normalize(c[0]) in norm_target]
     if len(contains) == 1:
         return contains[0][1], "contains"
@@ -76,18 +96,18 @@ def match_kapt_code(apt_name, dong, candidates):
         contains.sort(key=lambda c: abs(len(normalize(c[0])) - len(norm_target)))
         return contains[0][1], "contains_ambiguous"
 
-    # K-apt가 단지명 앞에 동명을 붙이는 흔한 패턴 대응 (예: RTMS "자양삼성" vs K-apt "자양동삼성아파트")
-    target_dedong = strip_dong_prefix(norm_target, dong)
+    # 접두어 제거 후 containment(부분 일치) — 마지막 완화 단계
+    target_dedong = strip_local_prefix(norm_target, region, dong)
     dedong = [
         c for c in candidates
-        if strip_dong_prefix(normalize(c[0]), dong) == target_dedong
-        or target_dedong in strip_dong_prefix(normalize(c[0]), dong)
-        or strip_dong_prefix(normalize(c[0]), dong) in target_dedong
+        if strip_local_prefix(normalize(c[0]), region, dong) == target_dedong
+        or target_dedong in strip_local_prefix(normalize(c[0]), region, dong)
+        or strip_local_prefix(normalize(c[0]), region, dong) in target_dedong
     ]
     if len(dedong) == 1:
         return dedong[0][1], "dedong"
     if len(dedong) > 1:
-        dedong.sort(key=lambda c: abs(len(strip_dong_prefix(normalize(c[0]), dong)) - len(target_dedong)))
+        dedong.sort(key=lambda c: abs(len(strip_local_prefix(normalize(c[0]), region, dong)) - len(target_dedong)))
         return dedong[0][1], "dedong_ambiguous"
 
     return None, "no_match"
@@ -123,7 +143,7 @@ def main():
     for i, r in complexes.iterrows():
         region, dong, name = r["지역"], r["umdNm"], r["aptNm"]
         candidates = buckets.get((region, dong), [])
-        kapt_code, match_type = match_kapt_code(name, dong, candidates)
+        kapt_code, match_type = match_kapt_code(name, region, dong, candidates)
         match_stats[match_type] = match_stats.get(match_type, 0) + 1
 
         households = None
