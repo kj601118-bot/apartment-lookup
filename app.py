@@ -37,15 +37,24 @@ def load_geo():
 
 @st.cache_data
 def load_aptinfo():
-    # matchType이 exact/contains(비모호)인 경우만 신뢰 — ambiguous/no_match는 세대수 미표기
+    # matchType이 exact/contains/dedong(비모호)인 경우만 신뢰 — ambiguous/no_match는 세대수 미표기
     try:
         info = pd.read_csv("data/aptinfo_cache.csv", encoding="utf-8-sig")
+        info = info[info["matchType"].isin(["exact", "contains", "dedong"])]
+        info = info[info["세대수"].notna()]
+        info["세대수"] = info["세대수"].astype(float).astype(int)
+        info = info[["지역", "umdNm", "aptNm", "세대수"]]
     except FileNotFoundError:
-        return pd.DataFrame(columns=["지역", "umdNm", "aptNm", "세대수"])
-    info = info[info["matchType"].isin(["exact", "contains", "dedong"])]
-    info = info[info["세대수"].notna()]
-    info["세대수"] = info["세대수"].astype(float).astype(int)
-    return info[["지역", "umdNm", "aptNm", "세대수"]]
+        info = pd.DataFrame(columns=["지역", "umdNm", "aptNm", "세대수"])
+
+    # 수동 보정(K-apt 목록에 없어 자동 매칭이 불가능한 단지 등) — 자동 매칭보다 우선 적용
+    try:
+        manual = pd.read_csv("data/aptinfo_manual.csv", encoding="utf-8-sig")
+        manual = manual[["지역", "umdNm", "aptNm", "세대수"]]
+        info = pd.concat([info, manual]).drop_duplicates(subset=["지역", "umdNm", "aptNm"], keep="last")
+    except FileNotFoundError:
+        pass
+    return info
 
 
 def ym_add(ym, delta):

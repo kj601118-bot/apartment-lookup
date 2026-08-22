@@ -6,12 +6,21 @@ import json
 with open("data/raw_transactions.csv", encoding="utf-8-sig") as f:
     rows = list(csv.DictReader(f))
 
-# 세대수: matchType이 exact/contains(비모호)인 경우만 신뢰
+# 세대수: matchType이 exact/contains/dedong(비모호)인 경우만 신뢰
 households = {}
 try:
     with open("data/aptinfo_cache.csv", encoding="utf-8-sig") as f:
         for r in csv.DictReader(f):
             if r["matchType"] in ("exact", "contains", "dedong") and r["세대수"]:
+                households[(r["지역"], r["umdNm"], r["aptNm"])] = int(float(r["세대수"]))
+except FileNotFoundError:
+    pass
+
+# 수동 보정(K-apt 목록에 없어 자동 매칭이 불가능한 단지 등) — 자동 매칭보다 우선 적용
+try:
+    with open("data/aptinfo_manual.csv", encoding="utf-8-sig") as f:
+        for r in csv.DictReader(f):
+            if r["세대수"]:
                 households[(r["지역"], r["umdNm"], r["aptNm"])] = int(float(r["세대수"]))
 except FileNotFoundError:
     pass
