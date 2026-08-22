@@ -40,7 +40,9 @@ def load_aptinfo():
     # matchType이 exact/contains/dedong(비모호)인 경우만 신뢰 — ambiguous/no_match는 세대수 미표기
     try:
         info = pd.read_csv("data/aptinfo_cache.csv", encoding="utf-8-sig")
-        info = info[info["matchType"].isin(["exact", "contains", "dedong"])]
+        info = info[info["matchType"].isin(
+            ["exact", "contains", "dedong", "contains_saleonly", "dedong_saleonly", "exact_saleonly"]
+        )]
         info = info[info["세대수"].notna()]
         info["세대수"] = info["세대수"].astype(float).astype(int)
         info = info[["지역", "umdNm", "aptNm", "세대수"]]

@@ -73,15 +73,18 @@ def load_kapt_list():
 
 
 def match_kapt_code(apt_name, region, dong, candidates):
+    """반환: (kaptCode, matchType, ambiguous_candidates)
+    ambiguous_candidates는 matchType이 *_ambiguous 일 때만 [(kaptName, kaptCode), ...] 로 채워진다
+    (임대/분양 여부로 재판정할 때 사용, main() 참고)."""
     norm_target = normalize(apt_name)
     if not norm_target:
-        return None, "no_name"
+        return None, "no_name", None
 
     exact = [c for c in candidates if normalize(c[0]) == norm_target]
     if len(exact) == 1:
-        return exact[0][1], "exact"
+        return exact[0][1], "exact", None
     if len(exact) > 1:
-        return exact[0][1], "exact_ambiguous"
+        return exact[0][1], "exact_ambiguous", exact
 
     # K-apt가 단지명 앞에 동명/구명을 붙이는 흔한 패턴 대응
     # (예: RTMS "자양삼성" vs K-apt "자양동삼성아파트", RTMS "벽산블루밍" vs K-apt "관악벽산블루밍")
@@ -89,16 +92,16 @@ def match_kapt_code(apt_name, region, dong, candidates):
     # "벽산블루밍" vs "봉천벽산블루밍3차"류의 오탐(둘 다 containment는 걸림) 모호성을 줄인다.
     prefix_exact = [c for c in candidates if strip_local_prefix(normalize(c[0]), region, dong) == norm_target]
     if len(prefix_exact) == 1:
-        return prefix_exact[0][1], "dedong"
+        return prefix_exact[0][1], "dedong", None
     if len(prefix_exact) > 1:
-        return prefix_exact[0][1], "dedong_ambiguous"
+        return prefix_exact[0][1], "dedong_ambiguous", prefix_exact
 
     contains = [c for c in candidates if norm_target in normalize(c[0]) or normalize(c[0]) in norm_target]
     if len(contains) == 1:
-        return contains[0][1], "contains"
+        return contains[0][1], "contains", None
     if len(contains) > 1:
         contains.sort(key=lambda c: abs(len(normalize(c[0])) - len(norm_target)))
-        return contains[0][1], "contains_ambiguous"
+        return contains[0][1], "contains_ambiguous", contains
 
     # 접두어 제거 후 containment(부분 일치) — 마지막 완화 단계
     target_dedong = strip_local_prefix(norm_target, region, dong)
@@ -109,12 +112,12 @@ def match_kapt_code(apt_name, region, dong, candidates):
         or strip_local_prefix(normalize(c[0]), region, dong) in target_dedong
     ]
     if len(dedong) == 1:
-        return dedong[0][1], "dedong"
+        return dedong[0][1], "dedong", None
     if len(dedong) > 1:
         dedong.sort(key=lambda c: abs(len(strip_local_prefix(normalize(c[0]), region, dong)) - len(target_dedong)))
-        return dedong[0][1], "dedong_ambiguous"
+        return dedong[0][1], "dedong_ambiguous", dedong
 
-    return None, "no_match"
+    return None, "no_match", None
 
 
 def fetch_basis_info(kapt_code, max_retries=3):
@@ -147,7 +150,21 @@ def main():
     for i, r in complexes.iterrows():
         region, dong, name = r["지역"], r["umdNm"], r["aptNm"]
         candidates = buckets.get((region, dong), [])
-        kapt_code, match_type = match_kapt_code(name, region, dong, candidates)
+        kapt_code, match_type, ambiguous = match_kapt_code(name, region, dong, candidates)
+
+        # 모호한 경우, RTMS는 매매 실거래만 다루므로 "임대" 등록을 제외하면 하나로 좁혀지는지 확인
+        if ambiguous:
+            non_rental = []
+            for cand_name, cand_code in ambiguous:
+                if cand_code not in basis_cache:
+                    basis_cache[cand_code] = fetch_basis_info(cand_code)
+                    time.sleep(0.12)
+                if basis_cache[cand_code].get("codeSaleNm") != "임대":
+                    non_rental.append((cand_name, cand_code))
+            if len(non_rental) == 1:
+                kapt_code = non_rental[0][1]
+                match_type = match_type.replace("_ambiguous", "_saleonly")
+
         match_stats[match_type] = match_stats.get(match_type, 0) + 1
 
         households = None
