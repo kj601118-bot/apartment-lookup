@@ -62,9 +62,10 @@ EXCLUDED_AREAS = [
 # 필터 조건
 MIN_AREA_M2 = 58.0   # 전용면적 하한 (59㎡ 타입 포함 범위)
 MAX_AREA_M2 = 60.5   # 전용면적 상한
-MIN_PRICE_MAN = 110_000  # 11억 (단위: 만원)
+MIN_PRICE_MAN = 90_000   # 9억 (단위: 만원)
 MAX_PRICE_MAN = 150_000  # 15억 (단위: 만원)
-MIN_HOUSEHOLDS = 500     # 최소 세대수 (별도 단지 정보 리서치 시 적용)
+MIN_HOUSEHOLDS = 500     # 최소 세대수 (세대수 미확인 단지는 필터에서 제외하지 않고 남겨둠)
+MIN_TOTAL_COUNT_2026 = 5  # 2026년 전체 거래건수 최소치 (단지 목록 표시 기준)
 
 DATA_DIR = "data"
 # 파일명을 transactions.csv 가 아닌 raw_transactions.csv 로 분리한 이유:

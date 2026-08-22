@@ -6,6 +6,8 @@ import pydeck as pdk
 import streamlit as st
 from plotly.subplots import make_subplots
 
+import config
+
 SERIES_COLORS = [
     "#2a78d6", "#eb6834", "#1baf7a", "#eda100",
     "#e87ba4", "#008300", "#4a3aa7", "#e34948",
@@ -68,8 +70,9 @@ recent_label = f"{ym_add(max_ym, -2) // 100}.{ym_add(max_ym, -2) % 100:02d} ~ {m
 
 st.title("서울·경기 아파트 실거래가 조회")
 st.caption(
-    "국토교통부 실거래가공개시스템 API 기반 · 전용 58~60.5㎡ · 2026년 실측 거래 데이터 "
-    f"· 최근 3개월 기준월: {recent_label}"
+    "국토교통부 실거래가공개시스템 API 기반 · 전용 58~60.5㎡ · 9억~15억 · 2026년 실측 거래 데이터 "
+    f"· 최근 3개월 기준월: {recent_label} · 목록 조건: 2026년 전체 {config.MIN_TOTAL_COUNT_2026}건↑ · "
+    f"최근3개월 3건↑ · 세대수 확인시 {config.MIN_HOUSEHOLDS}세대↑ (미확인 단지는 표시)"
 )
 
 # ---------------- Filters ----------------
@@ -94,10 +97,12 @@ if sel_apts:
     filtered = filtered[filtered["aptNm"].isin(sel_apts)]
 
 # ---------------- Complex-level summary ----------------
-# 최근 3개월간 실거래가 3건 미만인 단지는 목록에서 제외한다
+# 최근 3개월간 실거래가 3건 미만이거나, 2026년 전체 거래가 MIN_TOTAL_COUNT_2026건 미만인 단지는 제외한다
 MIN_RECENT_COUNT = 3
 rows = []
 for key, g in filtered.groupby(["지역", "umdNm", "aptNm", "buildYear"]):
+    if len(g) < config.MIN_TOTAL_COUNT_2026:
+        continue
     recent = g[g["ym"].isin(recent_window)]
     if len(recent) < MIN_RECENT_COUNT:
         continue
@@ -120,6 +125,8 @@ if len(summary):
     )
 else:
     summary["세대수"] = pd.Series(dtype="Int64")
+# 세대수가 확인된 단지 중 최소 세대수(config.MIN_HOUSEHOLDS) 미만은 제외 — 세대수 미확인 단지는 남겨둔다
+summary = summary[summary["세대수"].isna() | (summary["세대수"] >= config.MIN_HOUSEHOLDS)]
 summary = summary.sort_values("최근3개월평균(억)", ascending=False, na_position="last").reset_index(drop=True)
 COLUMN_ORDER = ["선택", "지역", "동", "아파트명", "준공년도", "세대수", "전용면적(㎡)",
                 "최근3개월평균(억)", "최근3개월건수", "전체거래건수", "최근거래일"]
