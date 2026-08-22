@@ -2,7 +2,8 @@
 """
 2026년 1월 ~ 현재월까지의 아파트 매매 실거래가를 전량 수집하여
 조건(전용면적 58~60.5㎡, 거래금액 11~15억)에 맞는 건만 필터링해
-data/raw_transactions.csv 로 저장한다. (최초 1회 백필용)
+data/raw_transactions.csv 로 저장한다. (전체 재백필 겸 최신화용 — 매번 전체 기간을 다시 훑어
+RTMS의 지연신고(최대 30일)로 뒤늦게 잡히는 과거월 거래도 빠짐없이 반영한다)
 """
 import csv
 import datetime
@@ -16,10 +17,8 @@ from rtms_client import fetch_trades
 OUT_PATH = os.path.join(os.path.dirname(__file__), config.MASTER_CSV)
 
 CSV_COLUMNS = [
-    "지역", "sggCd", "umdNm", "aptNm", "aptSeq", "jibun", "roadNm",
-    "buildYear", "excluUseAr", "floor",
+    "지역", "umdNm", "aptNm", "buildYear", "addr", "excluUseAr", "floor",
     "dealYear", "dealMonth", "dealDay", "dealAmount_만원", "dealAmount_억",
-    "dealingGbn", "cdealType", "cdealDay", "수집일시",
 ]
 
 
@@ -37,9 +36,9 @@ def to_int_amount(s):
     return int(s.replace(",", "").strip())
 
 
-def row_key(row):
-    return (row["aptSeq"], row["dealYear"], row["dealMonth"], row["dealDay"],
-            row["floor"], row["excluUseAr"], row["dealAmount"])
+def row_key(r):
+    return (r["지역"], r["umdNm"], r["aptNm"], r["dealYear"], r["dealMonth"], r["dealDay"],
+            r["floor"], r["excluUseAr"], str(r["dealAmount_만원"]))
 
 
 def main():
@@ -50,8 +49,7 @@ def main():
     if os.path.exists(OUT_PATH):
         with open(OUT_PATH, "r", encoding="utf-8-sig", newline="") as f:
             for r in csv.DictReader(f):
-                existing_keys.add((r["aptSeq"], r["dealYear"], r["dealMonth"], r["dealDay"],
-                                    r["floor"], r["excluUseAr"], r["dealAmount_만원"]))
+                existing_keys.add(row_key(r))
 
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     write_header = not os.path.exists(OUT_PATH)
@@ -63,7 +61,6 @@ def main():
     total_fetched = 0
     total_matched = 0
     total_new = 0
-    now_str = now.strftime("%Y-%m-%d %H:%M")
 
     for lawd_cd, area_name in config.TARGET_LAWD.items():
         for ymd in months:
@@ -85,34 +82,21 @@ def main():
                     continue
                 total_matched += 1
 
-                key_tuple = (row["aptSeq"], row["dealYear"], row["dealMonth"], row["dealDay"],
-                             row["floor"], row["excluUseAr"], str(amount))
+                out_row = {
+                    "지역": area_name, "umdNm": row["umdNm"], "aptNm": row["aptNm"],
+                    "buildYear": row["buildYear"],
+                    "addr": (row["roadNm"] or row["jibun"]).strip(),
+                    "excluUseAr": row["excluUseAr"], "floor": row["floor"],
+                    "dealYear": row["dealYear"], "dealMonth": row["dealMonth"],
+                    "dealDay": row["dealDay"], "dealAmount_만원": amount,
+                    "dealAmount_억": round(amount / 10000, 2),
+                }
+                key_tuple = row_key(out_row)
                 if key_tuple in existing_keys:
                     continue
                 existing_keys.add(key_tuple)
                 total_new += 1
-
-                writer.writerow({
-                    "지역": area_name,
-                    "sggCd": row["sggCd"],
-                    "umdNm": row["umdNm"],
-                    "aptNm": row["aptNm"],
-                    "aptSeq": row["aptSeq"],
-                    "jibun": row["jibun"],
-                    "roadNm": row["roadNm"],
-                    "buildYear": row["buildYear"],
-                    "excluUseAr": row["excluUseAr"],
-                    "floor": row["floor"],
-                    "dealYear": row["dealYear"],
-                    "dealMonth": row["dealMonth"],
-                    "dealDay": row["dealDay"],
-                    "dealAmount_만원": amount,
-                    "dealAmount_억": round(amount / 10000, 2),
-                    "dealingGbn": row["dealingGbn"],
-                    "cdealType": row["cdealType"],
-                    "cdealDay": row["cdealDay"],
-                    "수집일시": now_str,
-                })
+                writer.writerow(out_row)
             time.sleep(0.15)  # API 과호출 방지
         print(f"[OK] {area_name} 완료 (누적 매칭 {total_matched}건)")
 

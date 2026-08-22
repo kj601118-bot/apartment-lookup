@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 주간 실거래가 업데이트 스크립트.
-당월 + 직전월 데이터를 재조회하여(국토부 실거래 신고는 계약 후 최대 30일 소요되므로
-직전월도 매번 다시 확인해야 누락 없이 최신 반영됨) data/raw_transactions.csv 에 신규 건만 append 한다.
+당월 + 직전 2개월 데이터를 재조회하여(국토부 실거래 신고는 계약 후 최대 30일 소요되므로
+최근월은 매번 다시 확인해야 누락 없이 최신 반영됨) data/raw_transactions.csv 에 신규 건만 append 한다.
 실행 후 "이번 주 신규 매칭 건"을 별도 diff 파일로도 남긴다.
+
+주의: 이 스크립트는 최근 3개월만 재확인한다. 갱신을 오래 걸렀거나(예: 2주 이상 공백)
+더 오래된 월의 지연신고 누락이 걱정되면 build_dataset.py(전체 재백필)를 대신 실행할 것.
 """
 import csv
 import datetime
@@ -16,10 +19,8 @@ BASE_DIR = os.path.dirname(__file__)
 OUT_PATH = os.path.join(BASE_DIR, config.MASTER_CSV)
 
 CSV_COLUMNS = [
-    "지역", "sggCd", "umdNm", "aptNm", "aptSeq", "jibun", "roadNm",
-    "buildYear", "excluUseAr", "floor",
+    "지역", "umdNm", "aptNm", "buildYear", "addr", "excluUseAr", "floor",
     "dealYear", "dealMonth", "dealDay", "dealAmount_만원", "dealAmount_억",
-    "dealingGbn", "cdealType", "cdealDay", "수집일시",
 ]
 
 
@@ -27,23 +28,32 @@ def to_int_amount(s):
     return int(s.replace(",", "").strip())
 
 
-def target_months(now):
+def row_key(r):
+    return (r["지역"], r["umdNm"], r["aptNm"], r["dealYear"], r["dealMonth"], r["dealDay"],
+            r["floor"], r["excluUseAr"], str(r["dealAmount_만원"]))
+
+
+def target_months(now, back=2):
+    months = []
     y, m = now.year, now.month
-    py, pm = (y, m - 1) if m > 1 else (y - 1, 12)
-    return [f"{py:04d}{pm:02d}", f"{y:04d}{m:02d}"]
+    for _ in range(back + 1):
+        months.append(f"{y:04d}{m:02d}")
+        m -= 1
+        if m < 1:
+            m = 12
+            y -= 1
+    return list(reversed(months))
 
 
 def main():
     now = datetime.datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M")
     months = target_months(now)
 
     existing_keys = set()
     if os.path.exists(OUT_PATH):
         with open(OUT_PATH, "r", encoding="utf-8-sig", newline="") as f:
             for r in csv.DictReader(f):
-                existing_keys.add((r["aptSeq"], r["dealYear"], r["dealMonth"], r["dealDay"],
-                                    r["floor"], r["excluUseAr"], r["dealAmount_만원"]))
+                existing_keys.add(row_key(r))
 
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     write_header = not os.path.exists(OUT_PATH)
@@ -71,23 +81,19 @@ def main():
                 if not (config.MIN_PRICE_MAN <= amount <= config.MAX_PRICE_MAN):
                     continue
 
-                key_tuple = (row["aptSeq"], row["dealYear"], row["dealMonth"], row["dealDay"],
-                             row["floor"], row["excluUseAr"], str(amount))
-                if key_tuple in existing_keys:
-                    continue
-                existing_keys.add(key_tuple)
-
                 out_row = {
-                    "지역": area_name, "sggCd": row["sggCd"], "umdNm": row["umdNm"],
-                    "aptNm": row["aptNm"], "aptSeq": row["aptSeq"], "jibun": row["jibun"],
-                    "roadNm": row["roadNm"], "buildYear": row["buildYear"],
+                    "지역": area_name, "umdNm": row["umdNm"], "aptNm": row["aptNm"],
+                    "buildYear": row["buildYear"],
+                    "addr": (row["roadNm"] or row["jibun"]).strip(),
                     "excluUseAr": row["excluUseAr"], "floor": row["floor"],
                     "dealYear": row["dealYear"], "dealMonth": row["dealMonth"],
                     "dealDay": row["dealDay"], "dealAmount_만원": amount,
                     "dealAmount_억": round(amount / 10000, 2),
-                    "dealingGbn": row["dealingGbn"], "cdealType": row["cdealType"],
-                    "cdealDay": row["cdealDay"], "수집일시": now_str,
                 }
+                key_tuple = row_key(out_row)
+                if key_tuple in existing_keys:
+                    continue
+                existing_keys.add(key_tuple)
                 writer.writerow(out_row)
                 new_rows.append(out_row)
 
