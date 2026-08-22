@@ -19,6 +19,8 @@ SERVICE_KEY = ENV["APT_BASIS_SERVICE_KEY"]
 
 
 SUFFIXES = ("아파트", "apt", "APT")
+# RTMS/K-apt 간 표기 차이로 흔히 한쪽에만 붙는 필러 단어 (예: "인덕원마을(삼성)" vs K-apt "인덕원삼성")
+FILLERS = ("마을",)
 
 
 def normalize(name):
@@ -27,6 +29,8 @@ def normalize(name):
         if name.endswith(suf):
             name = name[: -len(suf)]
             break
+    for filler in FILLERS:
+        name = name.replace(filler, "")
     return name.lower()
 
 
@@ -155,7 +159,8 @@ def main():
                 basis_cache[kapt_code] = fetch_basis_info(kapt_code)
                 time.sleep(0.12)
             info = basis_cache[kapt_code]
-            households = info.get("kaptdaCnt")
+            # kaptdaCnt(세대수)가 0으로 잘못 채워진 케이스가 있어(예: 재건축 단지) hoCnt(호수)로 대체
+            households = info.get("kaptdaCnt") or info.get("hoCnt")
             builder = info.get("kaptBcompany")
             dong_cnt = info.get("kaptDongCnt")
             used_date = info.get("kaptUsedate")
